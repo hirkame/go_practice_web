@@ -2,16 +2,23 @@ package main
 
 import (
 	"log"
+	"mycode/trace"
 	"net/http"
 
 	"github.com/gorilla/websocket"
 )
 
 type room struct {
+	// メッセージを保持
 	forward chan []byte
-	join    chan *client
-	leave   chan *client
+	// 参加するクライアントのチャンネル
+	join chan *client
+	// 退出するクライアントのチャンネル
+	leave chan *client
+	// クライアント全員
 	clients map[*client]bool
+	// 操作ログの受け取り
+	tracer trace.Tracer
 }
 
 func (r *room) run() {
@@ -19,16 +26,20 @@ func (r *room) run() {
 		select {
 		case client := <-r.join:
 			r.clients[client] = true
+			r.tracer.Trace("New client joined.")
 		case client := <-r.leave:
 			delete(r.clients, client)
 			close(client.send)
+			r.tracer.Trace("Client left.")
 		case msg := <-r.forward:
 			for client := range r.clients {
 				select {
 				case client.send <- msg:
+					r.tracer.Trace(" -- Sent to clients.")
 				default:
 					delete(r.clients, client)
 					close(client.send)
+					r.tracer.Trace(" -- Failed to send the message. Clean up client.")
 				}
 			}
 		}
@@ -67,5 +78,6 @@ func newRoom() *room {
 		join:    make(chan *client),
 		leave:   make(chan *client),
 		clients: make(map[*client]bool),
+		tracer:  trace.Off(),
 	}
 }
